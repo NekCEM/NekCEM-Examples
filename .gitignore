@@ -15,6 +15,7 @@
 **/SESSION.NAME
 **/xxt_map.rea
 **/*.tmp
+**/Makefile
 
 # Object files
 *.o
