@@ -1,0 +1,9 @@
+{
+    "refraction": {
+	"app": "maxwell",
+	"dir": "refraction",
+	"usr": "refraction",
+	"rea": "refraction",
+	"params": {}
+    }
+}
