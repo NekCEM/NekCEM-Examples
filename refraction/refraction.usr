@@ -1,0 +1,554 @@
+c-----------------------------------------------------------------------
+c
+c     Plane wave being refracted by a dielectric interface.
+c
+c-----------------------------------------------------------------------
+      function incident(tt,xx,yy)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'PML'
+
+      common /userparam/ omega,thetai,thetat,cosi,cost,sini,sint,
+     $     coti,eps1,eps2,mu1,mu2,c1,c2,refl,tran
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      logical incident
+      real tt,xx,yy
+
+      real x0,y0,t_arrive
+
+      x0 = pmlinner(1)
+      y0 = pmlinner(4)
+c     Project the point onto the line made by the wavefront and divide
+c     by the speed to get how long it will take for the wave to arrive
+      t_arrive = (sini*(xx-x0)-cosi*(yy-y0))/c1
+      if (tt.ge.t_arrive) then
+         incident = .true.
+      else
+         incident = .false.
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function reflected(tt,xx,yy)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'PML'
+
+      common /userparam/ omega,thetai,thetat,cosi,cost,sini,sint,
+     $     coti,eps1,eps2,mu1,mu2,c1,c2,refl,tran
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      logical reflected
+      real tt,xx,yy
+
+      real x0,y0,x1,y1,t_arrive
+
+      x0 = pmlinner(1)
+      y0 = pmlinner(4)
+      x1 = x0-coti*y0
+      y1 = 0.0
+      t_arrive = (sini*(xx-x1)+cosi*(yy-y1))/c1
+      if (tt.ge.t_arrive) then
+         reflected = .true.
+      else
+         reflected = .false.
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function transmitted(tt,xx,yy)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'PML'
+
+      common /userparam/ omega,thetai,thetat,cosi,cost,sini,sint,
+     $     coti,eps1,eps2,mu1,mu2,c1,c2,refl,tran
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      logical transmitted
+      real tt,xx,yy
+
+      real x0,y0,x1,y1,t_arrive
+
+      x0 = pmlinner(1)
+      y0 = pmlinner(4)
+      x1 = x0-coti*y0
+      y1 = 0.0
+      t_arrive = (sint*(xx-x1)-cost*(yy-y1))/c2
+      if (tt.ge.t_arrive) then
+         transmitted = .true.
+      else
+         transmitted = .false.
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine elnum(gfacenum,e,f,i)
+c-----------------------------------------------------------------------
+c     Get the:
+c     - global element number `e`
+c     - face number `f`
+c     - point number on the face `i`
+c
+c     Given the global face number `gfacenum`.
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer gfacenum,e,f,i
+
+      integer tmp,efac
+
+      tmp = gfacenum
+      efac = nxzf*nfaces
+      i = mod(tmp,nxzf)
+      if (i.eq.0) then
+         i = nxzf
+      endif
+      tmp = tmp-i
+      f = mod(tmp,efac)/nxzf+1
+      tmp = tmp-(f-1)*nxzf
+      e = tmp/efac+1
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userinc(tt,incfhx,incfhy,incfhz,incfex,incfey,incfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'PML'
+
+      common /userparam/ omega,thetai,thetat,cosi,cost,sini,sint,
+     $     coti,eps1,eps2,mu1,mu2,c1,c2,refl,tran
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      common /inccom/ ceminc(lxzfl1),nceminc
+      integer ceminc,nceminc
+
+      real tt
+      real incfhx(lxzfl),incfhy(lxzfl),incfhz(lxzfl)
+      real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
+
+      logical incident,reflected,transmitted
+      integer e,i,j,k,nx1_2,tmp1,tmp2
+      real kn,xx,yy,mu,eps,eta,uinc,usc
+      real x0,y0,x1,y1
+
+      nx1_2 = nx1/2
+      x0 = pmlinner(1)
+      y0 = pmlinner(4)
+      x1 = x0-coti*y0
+      y1 = 0.0
+
+      do i = 1,nceminc
+         j = ceminc(i)
+         k = cemface(j)
+         xx = xm1(k,1,1,1)
+         yy = ym1(k,1,1,1)
+         eps = permittivity(k)
+         mu = permeability(k)
+         eta = sqrt(mu/eps)
+         kn = omega*sqrt(mu*eps)
+         call elnum(j,e,tmp1,tmp2)
+         if (ym1(nx1_2,nx1_2,1,e).gt.0.0) then
+            uinc = sin(kn*(sini*(xx-x0)-cosi*(yy-y0))-omega*tt)
+            usc = refl*sin(kn*(sini*(xx-x1)+cosi*(yy-y1))-omega*tt)
+            if (reflected(tt,xx,yy)) then
+               incfhz(j) = incfhz(j)+uinc+usc
+               incfex(j) = incfex(j)+cosi*eta*(uinc-usc)
+               incfey(j) = incfey(j)+sini*eta*(uinc+usc)
+            elseif (incident(tt,xx,yy)) then
+               incfhz(j) = incfhz(j)+uinc
+               incfex(j) = incfex(j)+cosi*eta*uinc
+               incfey(j) = incfey(j)+sini*eta*uinc
+            endif
+         else
+            usc = tran*sin(kn*(sint*(xx-x1)-cost*(yy-y1))-omega*tt)
+            if (transmitted(tt,xx,yy)) then
+               incfhz(j) = incfhz(j)+usc
+               incfex(j) = incfex(j)+cost*eta*usc
+               incfey(j) = incfey(j)+sint*eta*usc
+            endif
+         endif
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+c-----------------------------------------------------------------------
+      implicit none
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+c-----------------------------------------------------------------------
+c     Modify the geometry of the domain
+      implicit none
+      include 'SIZE'
+      include 'GEOM'
+
+      integer e,f,i,j,n,nxy2
+      real glmin,glmax
+      real sx,sy
+      real xmin,ymin,xmax,ymax
+
+      n = nx1*ny1*nz1*nelv
+
+      xmin = glmin(xm1,n)
+      xmax = glmax(xm1,n)
+      ymin = glmin(ym1,n)
+      ymax = glmax(ym1,n)
+
+      sx = 5.0
+      sy = 5.0
+
+      do i = 1,n
+         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(sx/2.0)
+         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(sy/2.0)
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,iel)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'PML'
+
+      common /userparam/
+     $     omega,               ! frequency of the incident wave
+     $     thetai,              ! angle of the incident wave
+     $     thetat,              ! angle of the transmitted wave
+     $     cosi,
+     $     cost,
+     $     sini,
+     $     sint,
+     $     coti,
+     $     eps1,                ! permittivity in upper region
+     $     eps2,                ! permittivity in lower region
+     $     mu1,                 ! permeability in upper region
+     $     mu2,                 ! permeability in lower region
+     $     c1,
+     $     c2,
+     $     refl,                ! reflection coefficient
+     $     tran                 ! transmission coefficient
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      common /inccom/ ceminc(lxzfl1),nceminc
+      integer ceminc,nceminc
+
+c     These don't do anything! This is a temporary measure until
+c
+c     https://github.com/NekCEM/NekCEM/issues/12
+c
+c     is resolved.
+      integer ix,iy,iz,iel
+
+      logical on_pmlinner,markinc
+      integer e,f,i,j,k,nx1_2
+      real k1,k2,z1,z2
+      real xx,yy,tol
+
+      omega = 5.0
+      eps1 = 1.0
+      eps2 = 2.0
+      mu1 = 1.0
+      mu2 = 1.0
+      c1 = 1.0/sqrt(mu1*eps1)
+      c2 = 1.0/sqrt(mu2*eps2)
+      k1 = omega*sqrt(mu1*eps1)
+      k2 = omega*sqrt(mu2*eps2)
+      thetai = pi/4.0
+      thetat = asin((k1/k2)*sin(thetai))
+      cosi = cos(thetai)
+      cost = cos(thetat)
+      sini = sin(thetai)
+      sint = sin(thetat)
+      coti = 1.0/tan(thetai)
+
+      z1 = sqrt(mu1/eps1)
+      z2 = sqrt(mu2/eps2)
+      refl = (z1*cosi-z2*cost)/(z1*cosi+z2*cost)
+      tran = 1+refl
+
+      nx1_2 = nx1/2
+c     Set the permittivities
+      do e = 1,nelt
+         if (ym1(nx1_2,nx1_2,1,e).gt.0.0) then
+c     Upper region
+            do i = 1,nxyz
+               j = i+nxyz*(e-1)
+               permittivity(j) = eps1
+               permeability(j) = mu1
+            enddo
+         else
+c     Lower region
+            do i = 1,nxyz
+               j = i+nxyz*(e-1)
+               permittivity(j) = eps2
+               permeability(j) = mu2
+            enddo
+         endif
+      enddo
+
+c     Mark where the incident field needs to be added
+      tol = 1e-8
+      nceminc = 0
+      do e = 1,nelt
+         if (pmltag(e).eq.0) then
+            cycle
+         endif
+         do f = 1,nfaces
+            markinc = .true.
+            do i = 1,nxzf
+               j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+               k = cemface(j)
+               yy = ym1(k,1,1,1)
+               xx = xm1(k,1,1,1)
+               if (.not.on_pmlinner(xx,yy)) then
+                  markinc = .false.
+                  exit
+               endif
+            enddo
+            if (markinc) then
+               do i = 1,nxzf
+                  j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+                  nceminc = nceminc+1
+                  ceminc(nceminc) = j
+               enddo
+            endif
+         enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function on_pmlinner(xx,yy)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'PML'
+
+      logical on_pmlinner
+      real xx,yy
+
+      real tol
+
+      tol = 1e-14
+      if (abs(xx-pmlinner(1)).lt.tol
+     $     .and.yy.gt.pmlinner(3)-tol
+     $     .and.yy.lt.pmlinner(4)+tol) then
+         on_pmlinner = .true.
+      elseif (abs(xx-pmlinner(2)).lt.tol
+     $        .and.yy.gt.pmlinner(3)-tol
+     $        .and.yy.lt.pmlinner(4)+tol) then
+         on_pmlinner = .true.
+      elseif (abs(yy-pmlinner(3)).lt.tol
+     $        .and.xx.gt.pmlinner(1)-tol
+     $        .and.xx.lt.pmlinner(2)+tol) then
+         on_pmlinner = .true.
+      elseif (abs(yy-pmlinner(4)).lt.tol
+     $        .and.xx.gt.pmlinner(1)-tol
+     $        .and.xx.lt.pmlinner(2)+tol) then
+         on_pmlinner = .true.
+      else
+         on_pmlinner = .false.
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersol(tt,solhx,solhy,solhz,solex,soley,solez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'PML'
+
+      common /userparam/ omega,thetai,thetat,cosi,cost,sini,sint,
+     $     coti,eps1,eps2,mu1,mu2,c1,c2,refl,tran
+      real omega,thetai,thetat,cosi,cost,sini,sint,coti,eps1,eps2,mu1
+     $     ,mu2,c1,c2,refl,tran
+
+      real tt
+      real solhx(lpts1),solhy(lpts1),solhz(lpts1)
+      real solex(lpts1),soley(lpts1),solez(lpts1)
+
+      logical incident,reflected,transmitted
+      integer e,i,j,l,nx1_2
+      real kn
+      real xx,yy,mu,eps,eta
+      real uinc,usc
+      real x0,y0,x1,y1
+
+      nx1_2 = nx1/2
+      x0 = pmlinner(1)
+      y0 = pmlinner(4)
+      x1 = x0-coti*y0
+      y1 = 0.0
+
+      do e = 1,nelt
+         if (pmltag(e).ne.0) then
+c     Error in the PML should be zero, so we don't have to do anything
+            cycle
+         endif
+         do j = 1,ly1
+            do i = 1,lx1
+c     Global number
+               l = i+nx1*(j-1)+nx1*ny1*(e-1)
+               eps = permittivity(l)
+               mu = permeability(l)
+               eta = sqrt(mu/eps)
+               xx = xm1(i,j,1,e)
+               yy = ym1(i,j,1,e)
+               kn = omega*sqrt(eps*mu)
+               if (ym1(nx1_2,nx1_2,1,e).gt.0.0) then
+                  uinc = sin(kn*(sini*(xx-x0)-cosi*(yy-y0))-omega*tt)
+                  usc = refl*sin(kn*(sini*(xx-x1)+cosi*(yy-y1))-omega
+     $                 *tt)
+                  if (reflected(tt,xx,yy)) then
+                     solhz(l) = uinc+usc
+                     solex(l) = cosi*eta*(uinc-usc)
+                     soley(l) = sini*eta*(uinc+usc)
+                  elseif (incident(tt,xx,yy)) then
+                     solhz(l) = uinc
+                     solex(l) = cosi*eta*uinc
+                     soley(l) = sini*eta*uinc
+                  else
+                     solhz(l) = 0.0
+                     solex(l) = 0.0
+                     soley(l) = 0.0
+                  endif
+               else
+                  usc = tran*sin(kn*(sint*(xx-x1)-cost*(yy-y1))-omega
+     $                 *tt)
+                  if (transmitted(tt,xx,yy)) then
+                     solhz(l) = usc
+                     solex(l) = cost*eta*usc
+                     soley(l) = sint*eta*usc
+                  else
+                     solhz(l) = 0.0
+                     solex(l) = 0.0
+                     soley(l) = 0.0
+                  endif
+               endif
+            enddo
+         enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userini(tt,hx,hy,hz,ex,ey,ez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real hx(lpts),hy(lpts),hz(lpts)
+      real ex(lpts),ey(lpts),ez(lpts)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersrc(tt,srchx,srchy,srchz,srcex,srcey,srcez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real srchx(lpts),srchy(lpts),srchz(lpts)
+      real srcex(lpts),srcey(lpts),srcez(lpts)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userfsrc(tt,srcfhx,srcfhy,srcfhz,srcfex,srcfey,srcfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real srcfhx(lxzfl),srcfhy(lxzfl),srcfhz(lxzfl)
+      real srcfex(lxzfl),srcfey(lxzfl),srcfez(lxzfl)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+
+      common /ccpu/ cpu_t,cpu_dtime,cpu_chk
+      real cpu_t,cpu_dtime,cpu_chk
+
+      real cpu_p_t
+      real l2(6),linf(6)
+
+      if (istep.le.10.or.mod(istep,iocomm).eq.0) then
+         call usersol
+     $     (time,shn(1,1),shn(1,2),shn(1,3),sen(1,1),sen(1,2),sen(1,3))
+
+         call cem_error(hn(1,1),shn(1,1),errhn(1,1),npts,l2(1),linf(1))
+         call cem_error(hn(1,2),shn(1,2),errhn(1,2),npts,l2(2),linf(2))
+         call cem_error(hn(1,3),shn(1,3),errhn(1,3),npts,l2(3),linf(3))
+         call cem_error(en(1,1),sen(1,1),erren(1,1),npts,l2(4),linf(4))
+         call cem_error(en(1,2),sen(1,2),erren(1,2),npts,l2(5),linf(5))
+         call cem_error(en(1,3),sen(1,3),erren(1,3),npts,l2(6),linf(6))
+
+         call userprint(istep,time,dt,l2,linf,cpu_t,cpu_p_t)
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userprint(istep,tt,dt,l2,linf,t1,t2)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      integer istep
+      real tt,dt,t1,t2
+      real l2(6),linf(6)
+
+      integer k
+
+      if (nid.eq.0) then
+         write(6,101) istep,nelt,nx1-1,npts,tt,dt,(l2(k),k=1,6),t1,t2
+         write(6,102) istep,nelt,nx1-1,npts,tt,dt,(linf(k),k=1,6),t1,t2
+      endif
+
+ 101  format(/,i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: L2')
+ 102  format(  i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: Linf')
+
+      return
+      end
+c-----------------------------------------------------------------------
