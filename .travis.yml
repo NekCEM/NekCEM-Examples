@@ -1,0 +1,15 @@
+language: fortran
+
+sudo: required
+
+addons:
+  apt:
+    packages:
+      - mpich
+      - libmpich-dev
+      - libatlas-dev
+      - libatlas-base-dev
+      - liblapack-dev
+
+script:
+  - bash travis.sh
