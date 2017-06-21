@@ -4,6 +4,15 @@
 	"dir": "refraction",
 	"usr": "refraction",
 	"rea": "refraction",
-	"params": {}
+	"params": {},
+	"parallelization": ["mpi"]
+    },
+    "temporal-fresnel": {
+	"app": "maxwell",
+	"dir": "temporal-fresnel",
+	"usr": "fresnel",
+	"rea": "fresnel",
+	"params": {},
+	"parallelization": ["mpi"]
     }
 }
