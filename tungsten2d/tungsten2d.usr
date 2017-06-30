@@ -1,0 +1,364 @@
+c-----------------------------------------------------------------------
+c
+c     Box geometry with a PML on the boundary and a dipole source.
+c
+c-----------------------------------------------------------------------
+      subroutine userinc(tt,incfhx,incfhy,incfhz,incfex,incfey,incfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'EMWAVE'
+      include 'GEOM'
+
+      common /userparam/ omega  ! frequency of the incident wave
+      real omega
+
+      common /userincvars/ incindex,ninc
+      integer incindex(lxzfl),ninc
+
+      real tt
+      real incfhx(lxzfl),incfhy(lxzfl),incfhz(lxzfl)
+      real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
+
+      integer i,j,k
+      real ky
+      real yy,mu,eps,eta,uinc
+      
+      do i = 1,ninc
+         j = incindex(i)
+         k = cemface(j)
+         yy = ym1(k,1,1,1)
+         eps = permittivity(k)
+         mu = permeability(k)
+         eta = sqrt(mu/eps)
+         ky = omega*sqrt(mu*eps)
+         uinc = sin(-ky*yy-omega*tt)
+         incfhz(j) = incfhz(j)+uinc
+         incfex(j) = incfex(j)+eta*uinc
+      enddo
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersol(tt,solhx,solhy,solhz,solex,soley,solez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real solhx(lpts),solhy(lpts),solhz(lpts)
+      real solex(lpts),soley(lpts),solez(lpts)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersrc(tt,srchx,srchy,srchz,srcex,srcey,srcez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      common /userdrude/ jn(lpts,3),kjn(lpts,3),resjn(lpts,3)
+     $     ,drudeparams(lpts,2),drudeindex(lpts),ndrude
+      integer drudeindex,ndrude
+      real jn,kjn,resjn,drudeparams
+
+      real tt
+      real srchx(lpts),srchy(lpts),srchz(lpts)
+      real srcex(lpts),srcey(lpts),srcez(lpts)
+
+      call cem_maxwell_drude(jn,kjn,resjn,drudeparams,drudeindex,ndrude)
+      
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userfsrc(tt,srcfhx,srcfhy,srcfhz,srcfex,srcfey,srcfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real srcfhx(lxzfl),srcfhy(lxzfl),srcfhz(lxzfl)
+      real srcfex(lxzfl),srcfey(lxzfl),srcfez(lxzfl)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userini(tt,hx,hy,hz,ex,ey,ez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real hx(lpts),hy(lpts),hz(lpts)
+      real ex(lpts),ey(lpts),ez(lpts)
+
+      integer i,n
+
+      n=nx1*ny1*nz1*nelt
+
+!$ACC DATA PRESENT(hx,hy,hz,ex,ey,ez)
+
+!$ACC PARALLEL LOOP GANG WORKER VECTOR
+      do i=1,n
+         hx(i)=0
+         hy(i)=0
+         hz(i)=0
+         ex(i)=0
+         ey(i)=0
+         ez(i)=0
+      enddo
+!$ACC END PARALLEL LOOP
+
+!$ACC END DATA
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,iel)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'PML'
+
+      common /userparam/ omega  ! frequency of the incident wave
+      real omega
+
+      common /tempusr/ material(lelt)
+      integer material
+
+      common /userincvars/ incindex,ninc
+      integer incindex(lxzfl),ninc
+
+      common /userdrude/ jn(lpts,3),kjn(lpts,3),resjn(lpts,3)
+     $     ,drudeparams(lpts,2),drudeindex(lpts),ndrude
+      integer drudeindex,ndrude
+      real jn,kjn,resjn,drudeparams
+
+c     These don't do anything! This is a temporary measure until
+c
+c     https://github.com/NekCEM/NekCEM/issues/12
+c
+c     is resolved.
+      integer ix,iy,iz,iel
+
+      logical markinc
+      integer e,f,i,j,k,nx1_2
+      real xx,yy
+      real interface,twopi
+      parameter (twopi = 8*atan(1.0))
+ 
+      omega = twopi/3.0
+
+      ndrude = 1
+      do e = 1,lelt
+         if (material(e).eq.1) then
+            do i = 1,nxyz
+               j= i+nxyz*(e-1)
+               permittivity(j) = 1.0 ! 16.911
+               permeability(j) = 1.0
+               drudeindex(ndrude) = j
+c               drudeparams(j,1) = 0.1463
+c               drudeparams(j,2) = 5.580**2
+                drudeparams(j,1) = 0
+                drudeparams(j,2) = 100
+               ndrude = ndrude+1
+            enddo
+         else
+            do i = 1,nxyz
+               j= i+nxyz*(e-1)
+               permittivity(j) = 1.0
+               permeability(j) = 1.0
+            enddo
+         endif
+      enddo
+      
+      ninc = 0
+      do e = 1,nelt
+         do f = 1,nfaces
+            markinc = .true.
+            do i = 1,nxzf
+c     j is the global face number
+               j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+c     k is the volume global number associated with face j.
+               k = cemface(j)
+               xx = xm1(k,1,1,1)
+               yy = ym1(k,1,1,1)
+               if (abs(yy-pmlinner(4)).gt.1e-8
+     $              .or.pmltag(e).eq.0) then
+                  markinc = .false.
+                  exit
+               endif
+            enddo
+            if (markinc) then
+               do i = 1,nxzf
+                  ninc = ninc+1
+                  j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+                  incindex(ninc) = j
+               enddo
+            endif
+         enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+c-----------------------------------------------------------------------
+      implicit none
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+
+      common /tempusr/ material(lelt)
+      integer material
+
+      integer i,n,e
+      real sx,sy,sz
+      real glmin,glmax
+      real xmin,ymin,zmin
+      real xmax,ymax,zmax
+      integer nx1_2,ny1_2,nz1_2
+      real ymid,xx,yy
+      real ff,a,b,d,a_over_d,b_over_d
+      real topflat,botflat,interface
+
+      d = 0.779390317066506
+      a_over_d = 0.039676747423067
+      b_over_d = 0.0345560727043048
+      a = a_over_d*d
+      b = b_over_d*d
+      sx = d
+      sy = d
+      
+      n = nx1*ny1*nz1*nelt
+      xmin = glmin(xm1,n)
+      xmax = glmax(xm1,n)
+      ymin = glmin(ym1,n)
+      ymax = glmax(ym1,n)
+
+      do i = 1,n
+         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(d/2.0)   
+         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(d/2.0)    
+      enddo
+
+      xmin = glmin(xm1,n)
+      xmax = glmax(xm1,n)
+      ymin = glmin(ym1,n)
+      ymax = glmax(ym1,n)
+
+c     - topflat: bottom of the upper PML; above this all the boxes are
+c       flat
+c     - botflat: top of the lower PML; below this all the boxes are flat
+      topflat = 2.0*ymax/3.0
+      botflat = 2.0*ymin/3.0
+
+      nx1_2 = nx1/2
+      ny1_2 = ny1/2
+      nz1_2 = nz1/2
+      
+      do e = 1,nelt 
+         ymid = ym1(nx1_2,ny1_2,1,e)
+         if (ymid.lt.0) then
+            material(e) = 1
+            if (ymid.gt.botflat) then
+               do i = 1,nx1*ny1*nz1
+                  xx = xm1(i,1,1,e)
+                  yy = ym1(i,1,1,e)
+                  ff = interface(a,b,d,xx)
+                  yy = -(ff-botflat)*(yy-botflat)/botflat+botflat          
+                  ym1(i,1,1,e) = yy
+               enddo
+            endif
+         elseif (ymid.gt.0) then
+            material(e) = 2
+            if (ymid.lt.topflat) then
+               do i = 1,nx1*ny1*nz1
+                  xx = xm1(i,1,1,e)
+                  yy = ym1(i,1,1,e)
+                  ff = interface(a,b,d,xx)
+                  yy = (topflat-ff)*yy/topflat+ff
+                  ym1(i,1,1,e) = yy
+               enddo
+            endif
+         endif
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function interface(a,b,d,xx)
+c-----------------------------------------------------------------------
+      implicit none
+
+      real interface
+      real a,b,d,xx
+      real twopi
+      parameter (twopi = 8*atan(1.0))
+
+      interface = a*cos(twopi*xx/d)+b*sin(twopi*xx/d)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'RTIMER'
+
+      integer i,npts3
+      real l2(6),linf(6)
+
+      npts3 = 3*npts
+      if (istep.eq.0) then
+         call rzero(shn,npts3)
+         call rzero(sen,npts3)
+      endif
+
+      if (istep.le.10.or.mod(istep,iocomm).eq.0) then
+         call cem_error(hn(1,1),shn(1,1),errhn(1,1),npts,l2(1),linf(1))
+         call cem_error(hn(1,2),shn(1,2),errhn(1,2),npts,l2(2),linf(2))
+         call cem_error(hn(1,3),shn(1,3),errhn(1,3),npts,l2(3),linf(3))
+         call cem_error(en(1,1),sen(1,1),erren(1,1),npts,l2(4),linf(4))
+         call cem_error(en(1,2),sen(1,2),erren(1,2),npts,l2(5),linf(5))
+         call cem_error(en(1,3),sen(1,3),erren(1,3),npts,l2(6),linf(6))
+
+         call userprint(istep,time,dt,l2,linf,cpu_t,cpu_p_t)
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userprint(istep,tt,dt,l2,linf,t1,t2)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      integer istep
+      real tt,dt,t1,t2
+      real l2(6),linf(6)
+
+      integer k
+
+      if (nid.eq.0) then
+         write(6,101) istep,nelt,nx1-1,npts,tt,dt,(l2(k),k=1,6),t1,t2
+         write(6,102) istep,nelt,nx1-1,npts,tt,dt,(linf(k),k=1,6),t1,t2
+      endif
+
+ 101  format(/,i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: L2')
+ 102  format(  i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: Linf')
+
+      return
+      end
+c-----------------------------------------------------------------------
