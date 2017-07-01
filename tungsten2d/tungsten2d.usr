@@ -21,9 +21,9 @@ c-----------------------------------------------------------------------
       real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
 
       integer i,j,k
-      real ky
+      real ky,ramp
       real yy,mu,eps,eta,uinc
-      
+
       do i = 1,ninc
          j = incindex(i)
          k = cemface(j)
@@ -32,11 +32,23 @@ c-----------------------------------------------------------------------
          mu = permeability(k)
          eta = sqrt(mu/eps)
          ky = omega*sqrt(mu*eps)
-         uinc = sin(-ky*yy-omega*tt)
+         uinc = ramp(2.0,0.5,tt)*sin(-ky*yy-omega*tt)
          incfhz(j) = incfhz(j)+uinc
          incfex(j) = incfex(j)+eta*uinc
       enddo
-      
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function ramp(loc,scale,tt)
+c-----------------------------------------------------------------------
+      implicit none
+
+      real ramp
+      real loc,scale,tt
+
+      ramp = 0.5*(1.0+erf((tt-loc)/scale))
+
       return
       end
 c-----------------------------------------------------------------------
@@ -67,7 +79,7 @@ c-----------------------------------------------------------------------
       real srcex(lpts),srcey(lpts),srcez(lpts)
 
       call cem_maxwell_drude(jn,kjn,resjn,drudeparams,drudeindex,ndrude)
-      
+
       return
       end
 c-----------------------------------------------------------------------
@@ -96,20 +108,14 @@ c-----------------------------------------------------------------------
 
       n=nx1*ny1*nz1*nelt
 
-!$ACC DATA PRESENT(hx,hy,hz,ex,ey,ez)
-
-!$ACC PARALLEL LOOP GANG WORKER VECTOR
-      do i=1,n
-         hx(i)=0
-         hy(i)=0
-         hz(i)=0
-         ex(i)=0
-         ey(i)=0
-         ez(i)=0
+      do i = 1,n
+         hx(i) = 0.0
+         hy(i) = 0.0
+         hz(i) = 0.0
+         ex(i) = 0.0
+         ey(i) = 0.0
+         ez(i) = 0.0
       enddo
-!$ACC END PARALLEL LOOP
-
-!$ACC END DATA
 
       return
       end
@@ -131,6 +137,10 @@ c-----------------------------------------------------------------------
       common /userincvars/ incindex,ninc
       integer incindex(lxzfl),ninc
 
+      common /powcom/ pow(3),avepow(3),npow,powindex(lxzfl)
+      integer npow,powindex
+      real pow,avepow
+
       common /userdrude/ jn(lpts,3),kjn(lpts,3),resjn(lpts,3)
      $     ,drudeparams(lpts,2),drudeindex(lpts),ndrude
       integer drudeindex,ndrude
@@ -146,34 +156,51 @@ c     is resolved.
       logical markinc
       integer e,f,i,j,k,nx1_2
       real xx,yy
-      real interface,twopi
-      parameter (twopi = 8*atan(1.0))
- 
-      omega = twopi/3.0
+      real interface,twopi,c0,l0,lambda,hbar,eps_inf,omegap,gammap
+      parameter (
+     $     twopi = 8*atan(1.0),
+     $     c0 = 299792458.0,    ! m/s
+     $     l0 = 1.0e-6,         ! m
+     $     hbar = 6.582e-16)    ! eV*s/rad
+      complex CI
+      parameter (CI = (0.0,1.0))
+
+      lambda = 3.0
+      eps_inf = 16.911          ! background relative permitivty
+c     Nondimensionalize the Drude parameters
+      omega = 1.240/lambda      ! eV
+      omega = l0*omega/(c0*hbar) ! rad
+      omegap = 5.580            ! eV
+      omegap = l0*omegap/(c0*hbar) ! rad
+      gammap = 0.1463           ! eV
+      gammap = l0*gammap/(c0*hbar) ! rad
+      if (nid.eq.0) write(*,*) 'omega,omegap,gammap = ',
+     $     omega,omegap,gammap
+      if (nid.eq.0) write(*,*) 'eps_drude = ',
+     $     eps_inf-omegap**2/(omega*(omega+CI*gammap))
 
       ndrude = 1
       do e = 1,lelt
          if (material(e).eq.1) then
             do i = 1,nxyz
-               j= i+nxyz*(e-1)
-               permittivity(j) = 1.0 ! 16.911
+               j = i+nxyz*(e-1)
+               permittivity(j) = eps_inf
                permeability(j) = 1.0
                drudeindex(ndrude) = j
-c               drudeparams(j,1) = 0.1463
-c               drudeparams(j,2) = 5.580**2
-                drudeparams(j,1) = 0
-                drudeparams(j,2) = 100
+               drudeparams(j,1) = gammap
+               drudeparams(j,2) = omegap**2
                ndrude = ndrude+1
             enddo
          else
             do i = 1,nxyz
-               j= i+nxyz*(e-1)
+               j = i+nxyz*(e-1)
                permittivity(j) = 1.0
                permeability(j) = 1.0
             enddo
          endif
       enddo
-      
+
+      npow = 0
       ninc = 0
       do e = 1,nelt
          do f = 1,nfaces
@@ -194,8 +221,10 @@ c     k is the volume global number associated with face j.
             if (markinc) then
                do i = 1,nxzf
                   ninc = ninc+1
+                  npow = npow+1
                   j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
                   incindex(ninc) = j
+                  powindex(npow) = j
                enddo
             endif
          enddo
@@ -238,7 +267,7 @@ c-----------------------------------------------------------------------
       b = b_over_d*d
       sx = d
       sy = d
-      
+
       n = nx1*ny1*nz1*nelt
       xmin = glmin(xm1,n)
       xmax = glmax(xm1,n)
@@ -246,8 +275,8 @@ c-----------------------------------------------------------------------
       ymax = glmax(ym1,n)
 
       do i = 1,n
-         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(d/2.0)   
-         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(d/2.0)    
+         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(sx/2.0)
+         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(sy/2.0)
       enddo
 
       xmin = glmin(xm1,n)
@@ -264,8 +293,8 @@ c     - botflat: top of the lower PML; below this all the boxes are flat
       nx1_2 = nx1/2
       ny1_2 = ny1/2
       nz1_2 = nz1/2
-      
-      do e = 1,nelt 
+
+      do e = 1,nelt
          ymid = ym1(nx1_2,ny1_2,1,e)
          if (ymid.lt.0) then
             material(e) = 1
@@ -317,13 +346,43 @@ c-----------------------------------------------------------------------
       include 'EMWAVE'
       include 'RTIMER'
 
+      common /userparam/ omega
+      real omega
+
+      common /powcom/ pow(3),avepow(3),npow,powindex(lxzfl)
+      integer npow,powindex
+      real pow,avepow
+
       integer i,npts3
-      real l2(6),linf(6)
+      real l2(6),linf(6),tmp(1)
+      real twopi
+      parameter (twopi = 8*atan(1.0))
 
       npts3 = 3*npts
       if (istep.eq.0) then
          call rzero(shn,npts3)
          call rzero(sen,npts3)
+         avepow(1) = 0.0
+         avepow(2) = 0.0
+         avepow(3) = 0.0
+      endif
+
+      if (time.ge.2*twopi/omega.and.time.le.3*twopi/omega) then
+         call power_spectrum(pow,powindex,npow)
+         avepow(1) = avepow(1)+dt*pow(1)
+         avepow(2) = avepow(2)+dt*pow(2)
+         avepow(3) = avepow(3)+dt*pow(3)
+      endif
+
+      if (istep.eq.nsteps) then
+         call gop(avepow(1),tmp,'+  ',1)
+         call gop(avepow(2),tmp,'+  ',1)
+         call gop(avepow(3),tmp,'+  ',1)
+         avepow(1) = avepow(1)*omega/twopi
+         avepow(2) = avepow(2)*omega/twopi
+         avepow(3) = avepow(3)*omega/twopi
+         write(*,*) 'avepow(1),avepow(2),avepow(3) = ',
+     $        avepow(1),avepow(2),avepow(3)
       endif
 
       if (istep.le.10.or.mod(istep,iocomm).eq.0) then
@@ -358,6 +417,35 @@ c-----------------------------------------------------------------------
 
  101  format(/,i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: L2')
  102  format(  i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: Linf')
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine power_spectrum(pow,powindex,npow)
+c-----------------------------------------------------------------------
+c     Each processor computes the instantaneous power on their
+c     respective faces.
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+
+      integer powindex(lxzfl),npow
+      real pow(3)
+
+      integer i,j,k
+
+      pow(1) = 0.0
+      pow(2) = 0.0
+      pow(3) = 0.0
+      do i = 1,npow
+         j = powindex(i)
+         k = cemface(j)
+
+         pow(1) = pow(1)+aream(j)*(en(k,2)*hn(k,3)-hn(k,2)*en(k,3))
+         pow(2) = pow(2)+aream(j)*(-en(k,1)*hn(k,3)+hn(k,1)*en(k,3))
+         pow(3) = pow(3)+aream(j)*(en(k,1)*hn(k,2)-hn(k,1)*en(k,2))
+      enddo
 
       return
       end
