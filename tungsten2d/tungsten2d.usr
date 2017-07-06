@@ -1,6 +1,7 @@
 c-----------------------------------------------------------------------
 c
-c     Box geometry with a PML on the boundary and a dipole source.
+c     Normally-incident plane wave striking a patterned Tungsten
+c     interface.
 c
 c-----------------------------------------------------------------------
       subroutine userinc(tt,incfhx,incfhy,incfhz,incfex,incfey,incfez)
