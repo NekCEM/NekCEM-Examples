@@ -21,9 +21,12 @@ c-----------------------------------------------------------------------
       real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
 
       integer i,j,k
-      real ky,ramp
+      real ky,ramp,period
       real yy,mu,eps,eta,uinc
+      real twopi
+      parameter (twopi = 8*atan(1.0))
 
+      period = twopi/omega
       do i = 1,ninc
          j = incindex(i)
          k = cemface(j)
@@ -32,7 +35,7 @@ c-----------------------------------------------------------------------
          mu = permeability(k)
          eta = sqrt(mu/eps)
          ky = omega*sqrt(mu*eps)
-         uinc = ramp(2.0,0.5,tt)*sin(-ky*yy-omega*tt)
+         uinc = ramp(tt/(3.0*period))*sin(-ky*yy-omega*tt)
          incfhz(j) = incfhz(j)+uinc
          incfex(j) = incfex(j)+eta*uinc
       enddo
@@ -40,14 +43,15 @@ c-----------------------------------------------------------------------
       return
       end
 c-----------------------------------------------------------------------
-      function ramp(loc,scale,tt)
+      function ramp(tt)
 c-----------------------------------------------------------------------
+c     Monotonic function that goes from 0 to 1 on the interval [0, 1].
       implicit none
 
       real ramp
-      real loc,scale,tt
+      real tt
 
-      ramp = 0.5*(1.0+erf((tt-loc)/scale))
+      ramp = 0.5*(1.0+erf(5.0*tt-5.0))
 
       return
       end
@@ -131,8 +135,9 @@ c-----------------------------------------------------------------------
       common /userparam/ omega  ! frequency of the incident wave
       real omega
 
-      common /tempusr/ material(lelt)
+      common /tempusr/ d,material(lelt)
       integer material
+      real d
 
       common /userincvars/ incindex,ninc
       integer incindex(lxzfl),ninc
@@ -159,13 +164,16 @@ c     is resolved.
       real interface,twopi,c0,l0,lambda,hbar,eps_inf,omegap,gammap
       parameter (
      $     twopi = 8*atan(1.0),
-     $     c0 = 299792458.0,    ! m/s
-     $     l0 = 1.0e-6,         ! m
+     $     c0 = 299792458.0e6,  ! um/s
+     $     l0 = 1.0,            ! um
      $     hbar = 6.582e-16)    ! eV*s/rad
       complex CI
       parameter (CI = (0.0,1.0))
 
-      lambda = 3.0
+c     Hijack an unused .rea value so that we can run many lambda's at
+c     once.
+      lambda = param(60)
+      if (nid.eq.0) write(*,*) 'lambda = ',lambda
       eps_inf = 16.911          ! background relative permitivty
 c     Nondimensionalize the Drude parameters
       omega = 1.240/lambda      ! eV
@@ -247,8 +255,9 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'EMWAVE'
 
-      common /tempusr/ material(lelt)
+      common /tempusr/ d,material(lelt)
       integer material
+      real d
 
       integer i,n,e
       real sx,sy,sz
@@ -257,7 +266,7 @@ c-----------------------------------------------------------------------
       real xmax,ymax,zmax
       integer nx1_2,ny1_2,nz1_2
       real ymid,xx,yy
-      real ff,a,b,d,a_over_d,b_over_d
+      real ff,a,b,a_over_d,b_over_d
       real topflat,botflat,interface
 
       d = 0.779390317066506
@@ -266,7 +275,7 @@ c-----------------------------------------------------------------------
       a = a_over_d*d
       b = b_over_d*d
       sx = d
-      sy = d
+      sy = 2*d
 
       n = nx1*ny1*nz1*nelt
       xmin = glmin(xm1,n)
@@ -275,8 +284,8 @@ c-----------------------------------------------------------------------
       ymax = glmax(ym1,n)
 
       do i = 1,n
-         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(sx/2.0)
-         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(sy/2.0)
+         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(0.5*sx)
+         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(0.5*sy)
       enddo
 
       xmin = glmin(xm1,n)
@@ -349,6 +358,10 @@ c-----------------------------------------------------------------------
       common /userparam/ omega
       real omega
 
+      common /tempusr/ d,material(lelt)
+      integer material
+      real d
+
       common /powcom/ pow(3),avepow(3),npow,powindex(lxzfl)
       integer npow,powindex
       real pow,avepow
@@ -367,22 +380,25 @@ c-----------------------------------------------------------------------
          avepow(3) = 0.0
       endif
 
-      if (time.ge.2*twopi/omega.and.time.le.3*twopi/omega) then
+      if (time.ge.6*twopi/omega.and.time.le.10*twopi/omega) then
          call power_spectrum(pow,powindex,npow)
          avepow(1) = avepow(1)+dt*pow(1)
          avepow(2) = avepow(2)+dt*pow(2)
          avepow(3) = avepow(3)+dt*pow(3)
       endif
 
-      if (istep.eq.nsteps) then
+      if (istep.eq.nsteps.and.istep.gt.0) then
          call gop(avepow(1),tmp,'+  ',1)
          call gop(avepow(2),tmp,'+  ',1)
          call gop(avepow(3),tmp,'+  ',1)
-         avepow(1) = avepow(1)*omega/twopi
-         avepow(2) = avepow(2)*omega/twopi
-         avepow(3) = avepow(3)*omega/twopi
-         write(*,*) 'avepow(1),avepow(2),avepow(3) = ',
+c     Dividing by two factors: 4*T = 4*2*pi/omega and the incident power
+c     0.5*d*eta1.
+         avepow(1) = avepow(1)*(omega/(4.0*twopi))/(0.5*d)
+         avepow(2) = avepow(2)*(omega/(4.0*twopi))/(0.5*d)
+         avepow(3) = avepow(3)*(omega/(4.0*twopi))/(0.5*d)
+         if (nid.eq.0) write(*,*) 'avepow(1),avepow(2),avepow(3) = ',
      $        avepow(1),avepow(2),avepow(3)
+         if (nid.eq.0) write(*,*) 'transmittance',1.0-avepow(2)
       endif
 
       if (istep.le.10.or.mod(istep,iocomm).eq.0) then
