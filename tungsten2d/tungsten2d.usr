@@ -1,0 +1,469 @@
+c-----------------------------------------------------------------------
+c
+c     Normally-incident plane wave striking a patterned Tungsten
+c     interface.
+c
+c-----------------------------------------------------------------------
+      subroutine userinc(tt,incfhx,incfhy,incfhz,incfex,incfey,incfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'EMWAVE'
+      include 'GEOM'
+
+      common /userparam/ omega  ! frequency of the incident wave
+      real omega
+
+      common /userincvars/ incindex,ninc
+      integer incindex(lxzfl),ninc
+
+      real tt
+      real incfhx(lxzfl),incfhy(lxzfl),incfhz(lxzfl)
+      real incfex(lxzfl),incfey(lxzfl),incfez(lxzfl)
+
+      integer i,j,k
+      real ky,ramp,period
+      real yy,mu,eps,eta,uinc
+      real twopi
+      parameter (twopi = 8*atan(1.0))
+
+      period = twopi/omega
+      do i = 1,ninc
+         j = incindex(i)
+         k = cemface(j)
+         yy = ym1(k,1,1,1)
+         eps = permittivity(k)
+         mu = permeability(k)
+         eta = sqrt(mu/eps)
+         ky = omega*sqrt(mu*eps)
+         uinc = ramp(tt/(3.0*period))*sin(-ky*yy-omega*tt)
+         incfhz(j) = incfhz(j)+uinc
+         incfex(j) = incfex(j)+eta*uinc
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function ramp(tt)
+c-----------------------------------------------------------------------
+c     Monotonic function that goes from 0 to 1 on the interval [0, 1].
+      implicit none
+
+      real ramp
+      real tt
+
+      ramp = 0.5*(1.0+erf(5.0*tt-5.0))
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersol(tt,solhx,solhy,solhz,solex,soley,solez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real solhx(lpts),solhy(lpts),solhz(lpts)
+      real solex(lpts),soley(lpts),solez(lpts)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usersrc(tt,srchx,srchy,srchz,srcex,srcey,srcez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      common /userdrude/ jn(lpts,3),kjn(lpts,3),resjn(lpts,3)
+     $     ,drudeparams(lpts,2),drudeindex(lpts),ndrude
+      integer drudeindex,ndrude
+      real jn,kjn,resjn,drudeparams
+
+      real tt
+      real srchx(lpts),srchy(lpts),srchz(lpts)
+      real srcex(lpts),srcey(lpts),srcez(lpts)
+
+      call cem_maxwell_drude(jn,kjn,resjn,drudeparams,drudeindex,ndrude)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userfsrc(tt,srcfhx,srcfhy,srcfhz,srcfex,srcfey,srcfez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real srcfhx(lxzfl),srcfhy(lxzfl),srcfhz(lxzfl)
+      real srcfex(lxzfl),srcfey(lxzfl),srcfez(lxzfl)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userini(tt,hx,hy,hz,ex,ey,ez)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      real tt
+      real hx(lpts),hy(lpts),hz(lpts)
+      real ex(lpts),ey(lpts),ez(lpts)
+
+      integer i,n
+
+      n=nx1*ny1*nz1*nelt
+
+      do i = 1,n
+         hx(i) = 0.0
+         hy(i) = 0.0
+         hz(i) = 0.0
+         ex(i) = 0.0
+         ey(i) = 0.0
+         ez(i) = 0.0
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,iel)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'PML'
+
+      common /userparam/ omega  ! frequency of the incident wave
+      real omega
+
+      common /tempusr/ d,material(lelt)
+      integer material
+      real d
+
+      common /userincvars/ incindex,ninc
+      integer incindex(lxzfl),ninc
+
+      common /powcom/ pow(3),avepow(3),npow,powindex(lxzfl)
+      integer npow,powindex
+      real pow,avepow
+
+      common /userdrude/ jn(lpts,3),kjn(lpts,3),resjn(lpts,3)
+     $     ,drudeparams(lpts,2),drudeindex(lpts),ndrude
+      integer drudeindex,ndrude
+      real jn,kjn,resjn,drudeparams
+
+c     These don't do anything! This is a temporary measure until
+c
+c     https://github.com/NekCEM/NekCEM/issues/12
+c
+c     is resolved.
+      integer ix,iy,iz,iel
+
+      logical markinc
+      integer e,f,i,j,k,nx1_2
+      real xx,yy
+      real interface,twopi,c0,l0,lambda,hbar,eps_inf,omegap,gammap
+      parameter (
+     $     twopi = 8*atan(1.0),
+     $     c0 = 299792458.0e6,  ! um/s
+     $     l0 = 1.0,            ! um
+     $     hbar = 6.582e-16)    ! eV*s/rad
+      complex CI
+      parameter (CI = (0.0,1.0))
+
+c     Hijack an unused .rea value so that we can run many lambda's at
+c     once.
+      lambda = param(60)
+      if (nid.eq.0) write(*,*) 'lambda = ',lambda
+      eps_inf = 16.911          ! background relative permitivty
+c     Nondimensionalize the Drude parameters
+      omega = 1.240/lambda      ! eV
+      omega = l0*omega/(c0*hbar) ! rad
+      omegap = 5.580            ! eV
+      omegap = l0*omegap/(c0*hbar) ! rad
+      gammap = 0.1463           ! eV
+      gammap = l0*gammap/(c0*hbar) ! rad
+      if (nid.eq.0) write(*,*) 'omega,omegap,gammap = ',
+     $     omega,omegap,gammap
+      if (nid.eq.0) write(*,*) 'eps_drude = ',
+     $     eps_inf-omegap**2/(omega*(omega+CI*gammap))
+
+      ndrude = 1
+      do e = 1,lelt
+         if (material(e).eq.1) then
+            do i = 1,nxyz
+               j = i+nxyz*(e-1)
+               permittivity(j) = eps_inf
+               permeability(j) = 1.0
+               drudeindex(ndrude) = j
+               drudeparams(j,1) = gammap
+               drudeparams(j,2) = omegap**2
+               ndrude = ndrude+1
+            enddo
+         else
+            do i = 1,nxyz
+               j = i+nxyz*(e-1)
+               permittivity(j) = 1.0
+               permeability(j) = 1.0
+            enddo
+         endif
+      enddo
+
+      npow = 0
+      ninc = 0
+      do e = 1,nelt
+         do f = 1,nfaces
+            markinc = .true.
+            do i = 1,nxzf
+c     j is the global face number
+               j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+c     k is the volume global number associated with face j.
+               k = cemface(j)
+               xx = xm1(k,1,1,1)
+               yy = ym1(k,1,1,1)
+               if (abs(yy-pmlinner(4)).gt.1e-8
+     $              .or.pmltag(e).eq.0) then
+                  markinc = .false.
+                  exit
+               endif
+            enddo
+            if (markinc) then
+               do i = 1,nxzf
+                  ninc = ninc+1
+                  npow = npow+1
+                  j = (e-1)*nxzf*nfaces+nxzf*(f-1)+i
+                  incindex(ninc) = j
+                  powindex(npow) = j
+               enddo
+            endif
+         enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat
+c-----------------------------------------------------------------------
+      implicit none
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+
+      common /tempusr/ d,material(lelt)
+      integer material
+      real d
+
+      integer i,n,e
+      real sx,sy,sz
+      real glmin,glmax
+      real xmin,ymin,zmin
+      real xmax,ymax,zmax
+      integer nx1_2,ny1_2,nz1_2
+      real ymid,xx,yy
+      real ff,a,b,a_over_d,b_over_d
+      real topflat,botflat,interface
+
+      d = 0.779390317066506
+      a_over_d = 0.039676747423067
+      b_over_d = 0.0345560727043048
+      a = a_over_d*d
+      b = b_over_d*d
+      sx = d
+      sy = 2*d
+
+      n = nx1*ny1*nz1*nelt
+      xmin = glmin(xm1,n)
+      xmax = glmax(xm1,n)
+      ymin = glmin(ym1,n)
+      ymax = glmax(ym1,n)
+
+      do i = 1,n
+         xm1(i,1,1,1) = sx*(xm1(i,1,1,1)-xmin)/(xmax-xmin)-(0.5*sx)
+         ym1(i,1,1,1) = sy*(ym1(i,1,1,1)-ymin)/(ymax-ymin)-(0.5*sy)
+      enddo
+
+      xmin = glmin(xm1,n)
+      xmax = glmax(xm1,n)
+      ymin = glmin(ym1,n)
+      ymax = glmax(ym1,n)
+
+c     - topflat: bottom of the upper PML; above this all the boxes are
+c       flat
+c     - botflat: top of the lower PML; below this all the boxes are flat
+      topflat = 2.0*ymax/3.0
+      botflat = 2.0*ymin/3.0
+
+      nx1_2 = nx1/2
+      ny1_2 = ny1/2
+      nz1_2 = nz1/2
+
+      do e = 1,nelt
+         ymid = ym1(nx1_2,ny1_2,1,e)
+         if (ymid.lt.0) then
+            material(e) = 1
+            if (ymid.gt.botflat) then
+               do i = 1,nx1*ny1*nz1
+                  xx = xm1(i,1,1,e)
+                  yy = ym1(i,1,1,e)
+                  ff = interface(a,b,d,xx)
+                  yy = -(ff-botflat)*(yy-botflat)/botflat+botflat          
+                  ym1(i,1,1,e) = yy
+               enddo
+            endif
+         elseif (ymid.gt.0) then
+            material(e) = 2
+            if (ymid.lt.topflat) then
+               do i = 1,nx1*ny1*nz1
+                  xx = xm1(i,1,1,e)
+                  yy = ym1(i,1,1,e)
+                  ff = interface(a,b,d,xx)
+                  yy = (topflat-ff)*yy/topflat+ff
+                  ym1(i,1,1,e) = yy
+               enddo
+            endif
+         endif
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      function interface(a,b,d,xx)
+c-----------------------------------------------------------------------
+      implicit none
+
+      real interface
+      real a,b,d,xx
+      real twopi
+      parameter (twopi = 8*atan(1.0))
+
+      interface = a*cos(twopi*xx/d)+b*sin(twopi*xx/d)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+      include 'RTIMER'
+
+      common /userparam/ omega
+      real omega
+
+      common /tempusr/ d,material(lelt)
+      integer material
+      real d
+
+      common /powcom/ pow(3),avepow(3),npow,powindex(lxzfl)
+      integer npow,powindex
+      real pow,avepow
+
+      integer i,npts3
+      real l2(6),linf(6),tmp(1)
+      real twopi
+      parameter (twopi = 8*atan(1.0))
+
+      npts3 = 3*npts
+      if (istep.eq.0) then
+         call rzero(shn,npts3)
+         call rzero(sen,npts3)
+         avepow(1) = 0.0
+         avepow(2) = 0.0
+         avepow(3) = 0.0
+      endif
+
+      if (time.ge.6*twopi/omega.and.time.le.10*twopi/omega) then
+         call power_spectrum(pow,powindex,npow)
+         avepow(1) = avepow(1)+dt*pow(1)
+         avepow(2) = avepow(2)+dt*pow(2)
+         avepow(3) = avepow(3)+dt*pow(3)
+      endif
+
+      if (istep.eq.nsteps.and.istep.gt.0) then
+         call gop(avepow(1),tmp,'+  ',1)
+         call gop(avepow(2),tmp,'+  ',1)
+         call gop(avepow(3),tmp,'+  ',1)
+c     Dividing by two factors: 4*T = 4*2*pi/omega and the incident power
+c     0.5*d*eta1.
+         avepow(1) = avepow(1)*(omega/(4.0*twopi))/(0.5*d)
+         avepow(2) = avepow(2)*(omega/(4.0*twopi))/(0.5*d)
+         avepow(3) = avepow(3)*(omega/(4.0*twopi))/(0.5*d)
+         if (nid.eq.0) write(*,*) 'avepow(1),avepow(2),avepow(3) = ',
+     $        avepow(1),avepow(2),avepow(3)
+         if (nid.eq.0) write(*,*) 'transmittance',1.0-avepow(2)
+      endif
+
+      if (istep.le.10.or.mod(istep,iocomm).eq.0) then
+         call cem_error(hn(1,1),shn(1,1),errhn(1,1),npts,l2(1),linf(1))
+         call cem_error(hn(1,2),shn(1,2),errhn(1,2),npts,l2(2),linf(2))
+         call cem_error(hn(1,3),shn(1,3),errhn(1,3),npts,l2(3),linf(3))
+         call cem_error(en(1,1),sen(1,1),erren(1,1),npts,l2(4),linf(4))
+         call cem_error(en(1,2),sen(1,2),erren(1,2),npts,l2(5),linf(5))
+         call cem_error(en(1,3),sen(1,3),erren(1,3),npts,l2(6),linf(6))
+
+         call userprint(istep,time,dt,l2,linf,cpu_t,cpu_p_t)
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userprint(istep,tt,dt,l2,linf,t1,t2)
+c-----------------------------------------------------------------------
+      implicit none
+      include 'SIZE'
+
+      integer istep
+      real tt,dt,t1,t2
+      real l2(6),linf(6)
+
+      integer k
+
+      if (nid.eq.0) then
+         write(6,101) istep,nelt,nx1-1,npts,tt,dt,(l2(k),k=1,6),t1,t2
+         write(6,102) istep,nelt,nx1-1,npts,tt,dt,(linf(k),k=1,6),t1,t2
+      endif
+
+ 101  format(/,i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: L2')
+ 102  format(  i10,i6,i4,i9,1p9e10.3,e9.2,' CPU: Linf')
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine power_spectrum(pow,powindex,npow)
+c-----------------------------------------------------------------------
+c     Each processor computes the instantaneous power on their
+c     respective faces.
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'EMWAVE'
+
+      integer powindex(lxzfl),npow
+      real pow(3)
+
+      integer i,j,k
+
+      pow(1) = 0.0
+      pow(2) = 0.0
+      pow(3) = 0.0
+      do i = 1,npow
+         j = powindex(i)
+         k = cemface(j)
+
+         pow(1) = pow(1)+aream(j)*(en(k,2)*hn(k,3)-hn(k,2)*en(k,3))
+         pow(2) = pow(2)+aream(j)*(-en(k,1)*hn(k,3)+hn(k,1)*en(k,3))
+         pow(3) = pow(3)+aream(j)*(en(k,1)*hn(k,2)-hn(k,1)*en(k,2))
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------

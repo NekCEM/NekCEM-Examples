@@ -14,5 +14,13 @@
 	"rea": "fresnel",
 	"params": {},
 	"parallelization": ["mpi"]
+    },
+    "tungsten2d": {
+	"app": "maxwell",
+	"dir": "tungsten2d",
+	"usr": "tungsten2d",
+	"rea": "tungsten2d",
+	"params": {},
+	"parallelization": ["mpi"]
     }
 }
