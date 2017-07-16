@@ -10,6 +10,7 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'EMWAVE'
       include 'GEOM'
+      include 'INPUT'
 
       common /userparam/ omega  ! frequency of the incident wave
       real omega
