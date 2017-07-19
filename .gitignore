@@ -9,43 +9,21 @@
 **/*.pyc
 
 # Build/run artifacts
-**/*.vtk
+**/vtk
 **/*.log
 **/*.output
 **/SESSION.NAME
 **/xxt_map.rea
 **/*.tmp
 **/Makefile
+**/obj
+**/*.out
+**/nekcem
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+Prenek artifacts
+**/fort.*
+**/*.dra
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-gslib_test
-nekcem
-subuser.F
+# Data files
+**/*.png
+**/*.dat
