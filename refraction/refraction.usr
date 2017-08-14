@@ -506,11 +506,8 @@ c-----------------------------------------------------------------------
       include 'SIZE'
       include 'TOTAL'
       include 'EMWAVE'
+      include 'RTIMER' 
 
-      common /ccpu/ cpu_t,cpu_dtime,cpu_chk
-      real cpu_t,cpu_dtime,cpu_chk
-
-      real cpu_p_t
       real l2(6),linf(6)
 
       if (istep.le.10.or.mod(istep,iocomm).eq.0) then
